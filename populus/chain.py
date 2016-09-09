@@ -689,14 +689,14 @@ class BaseGethChain(Chain):
         """
         super(BaseGethChain, self).__init__(project, chain_name)
 
+        # context manager shenanigans
+        self.stack = ExitStack()
+
         if geth_kwargs is None:
             geth_kwargs = {}
 
         if is_string(provider):
             provider = import_string(provider)
-
-        # context manager shenanigans
-        self.stack = ExitStack()
 
         self.provider_class = provider
 
