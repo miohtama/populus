@@ -633,10 +633,60 @@ GETH_KWARGS = {
 
 
 class BaseGethChain(Chain):
+    """Base class for geth based chain management."""
+
+    #: Instance of :class:`geth.Geth.BaseGethProcess`
     geth = None
+
+    #: Type of :class:`web3.providers.base.BaseProvider`
     provider_class = None
 
     def __init__(self, project, chain_name, provider=IPCProvider, **geth_kwargs):
+        """Initialize geth instance or connection.
+
+        May or may not generate a new blockchain data.
+
+        Example:
+
+        .. code-block:: python
+
+            chain_kwargs = {
+
+                # Generating DAG files is
+                # Estimatd to be 20 minutes on t2.small Amazon EC2
+                "wait_for_dag_timeout": 60*20,
+
+                # Passed to geth command line
+                "overrides": {
+                    "jitvm": "false",
+                }
+            }
+
+            with TemporaryGethChain(self, 'temp', **chain_kwargs):
+                # ...
+                pass
+
+        See also
+
+        * :class:`geth.DevGethProcess`
+
+        * :class:`geth.LiveGethProcess`
+
+        * :func:`geth.wrapper.construct_test_chain_kwargs` - how
+            geth command line overrides are constructed
+
+        :param project: Instance of :class:`populus.project.Project`
+
+        :param chain_name: Name of this chain. You may use chain data across session.
+
+        :param provider: Usually class reference of :class:`web3.providers.ipc.IPCProvider`
+            or :class:`web3.providers.rpc.RPCProvider`. Can be a class or
+            dotted name string of the class.
+
+        :param geth_kwargs: Extra arguments passed to geth.
+            Also may contain extra arguments consumed by :class:`BaseGethChain` itself,
+            like communication timeouts.
+        """
         super(BaseGethChain, self).__init__(project, chain_name)
 
         if geth_kwargs is None:
@@ -649,10 +699,19 @@ class BaseGethChain(Chain):
         self.stack = ExitStack()
 
         self.provider_class = provider
+
+        # Extract arguments that are not towards geth command line
         self.extra_kwargs = {
             key: value
             for key, value in geth_kwargs.items() if key not in GETH_KWARGS
         }
+
+        # Set default timeouts
+        self.wait_for_dag_timeout = self.extra_kwargs.pop("wait_for_dag_timeout", 600)
+        self.wait_for_ipc_timeout = self.extra_kwargs.pop("wait_for_ipc_timeout", 60)
+        self.wait_for_rpc_timeout = self.extra_kwargs.pop("wait_for_rpc_timeout", 60)
+
+        # Extract arguments that are towards geth command line
         self.geth_kwargs = {
             key: value
             for key, value in geth_kwargs.items() if key in GETH_KWARGS
@@ -714,14 +773,11 @@ class BaseGethChain(Chain):
         self.stack.enter_context(self.geth)
 
         if self.geth.is_mining:
-            # On Amazon EC2 2 VCPU small unit you get 32% of DAG generated
-            # within 600 seconds. Estimate is
-            # we can generate whole DAG in 40 minutes.
-            self.geth.wait_for_dag(60*40)
+            self.geth.wait_for_dag(self.wait_for_dag_timeout)
         if self.geth.ipc_enabled:
-            self.geth.wait_for_ipc(60)
+            self.geth.wait_for_ipc(self.wait_for_ipc_timeout)
         if self.geth.rpc_enabled:
-            self.geth.wait_for_rpc(60)
+            self.geth.wait_for_rpc(self.wait_for_rpc_timeout)
 
         return self
 
